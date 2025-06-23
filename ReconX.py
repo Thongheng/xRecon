@@ -6,11 +6,24 @@ from pathlib import Path
 import shutil
 import yaml
 import threading
+import select
+
+# A class to hold ANSI color codes for terminal output
+class Colors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'  # Yellow
+    FAIL = '\033[91m'      # Red
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
 def check_tool(tool_path):
     """Check if a tool is installed at the specified path."""
     if not shutil.which(tool_path):
-        print(f"Error: {tool_path} is not installed. Please install it first.")
+        print(f"{Colors.FAIL}Error: {tool_path} is not installed. Please install it first.{Colors.ENDC}")
         sys.exit(1)
 
 def run_tool(command, output_file):
@@ -18,11 +31,11 @@ def run_tool(command, output_file):
     Run a command, display its output in real-time, and only save the output
     to a file if the command completes successfully without being cancelled.
     """
-    print(f"\nRunning command: {' '.join(command)}\n")
+    print(f"\n{Colors.OKCYAN}Running command: {' '.join(command)}{Colors.ENDC}\n")
 
     stop_event = threading.Event()
     process = None
-    output_lines = []  # Store output in memory instead of writing directly to file
+    output_lines = []
 
     try:
         process = subprocess.Popen(
@@ -36,7 +49,6 @@ def run_tool(command, output_file):
         )
 
         def monitor_and_stream_output(lines_buffer):
-            """This function runs in a thread, printing output and storing it in a buffer."""
             for line in process.stdout:
                 if stop_event.is_set():
                     break
@@ -46,30 +58,31 @@ def run_tool(command, output_file):
         output_thread = threading.Thread(target=monitor_and_stream_output, args=(output_lines,))
         output_thread.start()
 
-        print("---")
-        print(">>> Tool is running. Type 'q' and press Enter to cancel (output will not be saved).")
-        print("---\n")
+        print(f"{Colors.HEADER}---{Colors.ENDC}")
+        print(f"{Colors.OKBLUE}>>> Tool is running. Type 'q' and press Enter to cancel (output will not be saved).{Colors.ENDC}")
+        print(f"{Colors.HEADER}---\n{Colors.ENDC}")
         
         while output_thread.is_alive():
             try:
-                user_input = input() 
-                if user_input.strip().lower() == 'q':
-                    print("\n[INFO] 'q' received. Cancelling operation...")
-                    stop_event.set()
-                    break
+                rlist, _, _ = select.select([sys.stdin], [], [], 1.0)
+                if rlist:
+                    user_input = sys.stdin.readline().strip().lower()
+                    if user_input == 'q':
+                        print(f"\n{Colors.WARNING}[INFO] 'q' received. Cancelling operation...{Colors.ENDC}")
+                        stop_event.set()
+                        break
             except (EOFError, KeyboardInterrupt):
-                print("\n[INFO] Interruption detected. Cancelling operation...")
+                print(f"\n{Colors.WARNING}[INFO] Interruption detected. Cancelling operation...{Colors.ENDC}")
                 stop_event.set()
                 break
 
     except FileNotFoundError:
-        print(f"Error: Command '{command[0]}' not found. Please ensure it is installed and in your system's PATH.", file=sys.stderr)
+        print(f"{Colors.FAIL}Error: Command '{command[0]}' not found. Please ensure it is installed and in your system's PATH.{Colors.ENDC}")
         return
     except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        print(f"{Colors.FAIL}An unexpected error occurred: {e}{Colors.ENDC}")
         return
     finally:
-        # Cleanup Section
         if process and stop_event.is_set():
             process.terminate()
 
@@ -78,26 +91,25 @@ def run_tool(command, output_file):
         
         return_code = process.wait() if process else -1
 
-        # --- Conditional Saving Logic ---
         if not stop_event.is_set() and return_code == 0:
-            print(f"\nCommand completed successfully. Saving output to {output_file}...")
+            print(f"\n{Colors.OKGREEN}Command completed successfully. Saving output to {output_file}...{Colors.ENDC}")
             try:
                 with open(output_file, "w") as f:
                     f.writelines(output_lines)
-                print(f"Results saved to {output_file}")
+                print(f"{Colors.OKGREEN}Results saved to {output_file}{Colors.ENDC}")
             except IOError as e:
-                print(f"\nError: Could not write to file {output_file}. {e}", file=sys.stderr)
+                print(f"\n{Colors.FAIL}Error: Could not write to file {output_file}. {e}{Colors.ENDC}")
         elif stop_event.is_set():
-            print("\nOperation cancelled by user. Output was NOT saved.")
+            print(f"{Colors.WARNING}\nOperation cancelled by user. Output was NOT saved.{Colors.ENDC}")
         else:
-            print(f"\nCommand finished with an error (code: {return_code}). Output was NOT saved.", file=sys.stderr)
+            print(f"{Colors.FAIL}\nCommand finished with an error (code: {return_code}). Output was NOT saved.{Colors.ENDC}")
 
 
 def display_menu():
     """Display the tool selection menu."""
-    print("\nAll-in-One Recon Tool")
-    print("1. Passive Subdomain Enumeration - Amass")
-    print("2. Active Subdomain Enumeration - Subfinder")
+    print(f"\n{Colors.HEADER}{Colors.BOLD}All-in-One Recon Tool{Colors.ENDC}")
+    print(f"1. {Colors.BOLD}Active{Colors.ENDC} Subdomain Enumeration - ffuf")
+    print(f"2. {Colors.BOLD}Passive{Colors.ENDC} Subdomain Enumeration - Subfinder")
     print("3. Network Scanning - Nmap")
     print("4. Web Server Validation - Httpx")
     print("5. Web App Scanning - OWASP ZAP")
@@ -107,154 +119,181 @@ def display_menu():
     print("9. VHost Scanning - ffuf")
     print("10. Web Crawling - Katana")
     print("0. Exit")
-    return input("Select an option: ")
+    return input(f"{Colors.WARNING}Select an option: {Colors.ENDC}")
+
+def display_post_scan_menu():
+    """Displays a simplified menu after a scan is complete."""
+    print(f"\n{Colors.HEADER}{Colors.BOLD}Scan Finished{Colors.ENDC}")
+    print("1. Continue (Return to main menu)")
+    print("2. Quit")
+    return input(f"{Colors.WARNING}Select an option: {Colors.ENDC}")
 
 def load_config():
-    """Load configuration from config.yaml."""
-    config_file = "config.yaml"
+    """Load configuration from config.yaml, located in the same directory as the script."""
     try:
-        with open(config_file, "r") as f:
+        script_dir = Path(__file__).resolve().parent
+        config_file_path = script_dir / "config.yaml"
+        with open(config_file_path, "r") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
-        print(f"Info: {config_file} not found. Using default tool paths.")
+        print(f"{Colors.OKBLUE}Info: Config file not found at '{config_file_path}'. Using default tool paths.{Colors.ENDC}")
         return {}
     except yaml.YAMLError as e:
-        print(f"Error parsing {config_file}: {e}")
+        print(f"{Colors.FAIL}Error parsing config file '{config_file_path}': {e}{Colors.ENDC}")
         sys.exit(1)
 
 def get_additional_args():
     """Prompt for optional additional arguments."""
-    args = input("Enter additional arguments (optional, press Enter to skip, 'q' to cancel): ")
+    prompt = (
+        f"{Colors.WARNING}Enter additional arguments (press Enter to skip, 'q' to cancel): {Colors.ENDC}"
+    )
+    args = input(prompt)
     if args.lower() == 'q':
         return None
     return args.split() if args else []
 
 def main():
-    # Parse command-line arguments
     parser = argparse.ArgumentParser(description="All-in-One Recon Tool")
     parser.add_argument("target", nargs="?", help="Target domain or IP (e.g., example.com or 192.168.1.1)")
     parser.add_argument("-o", "--output", default=".", help="Output directory (default: current directory)")
     args = parser.parse_args()
 
-    # Load configuration
     config = load_config()
-    
-    # Default tool paths and settings
+    # Define default paths for all tools and wordlists
     default_tools = {
-        "amass": "amass",
+        "ffuf": "ffuf",
         "subfinder": "subfinder",
         "nmap": "nmap",
         "httpx": "httpx",
         "zaproxy": "zaproxy",
-        "ffuf": "ffuf",
         "subzy": "subzy",
         "nuclei": "nuclei",
         "katana": "katana",
-        "ffuf_wordlist": "/usr/share/wordlists/dirb/common.txt",
-        "vhost_wordlist": "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+        "ffuf_wordlist_dir": "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+        "ffuf_wordlist_subdomain": "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
     }
     
-    # Update with config.yaml values
     tools_config = config.get("tools", {})
     tools = default_tools.copy()
-    tools.update({
-        "amass": tools_config.get("amass", {}).get("path", default_tools["amass"]),
-        "subfinder": tools_config.get("subfinder", {}).get("path", default_tools["subfinder"]),
-        "nmap": tools_config.get("nmap", {}).get("path", default_tools["nmap"]),
-        "httpx": tools_config.get("httpx", {}).get("path", default_tools["httpx"]),
-        "zaproxy": tools_config.get("zaproxy", {}).get("path", default_tools["zaproxy"]),
-        "ffuf": tools_config.get("ffuf", {}).get("path", default_tools["ffuf"]),
-        "subzy": tools_config.get("subzy", {}).get("path", default_tools["subzy"]),
-        "nuclei": tools_config.get("nuclei", {}).get("path", default_tools["nuclei"]),
-        "katana": tools_config.get("katana", {}).get("path", default_tools["katana"]),
-        "ffuf_wordlist": tools_config.get("ffuf", {}).get("wordlist", default_tools["ffuf_wordlist"]),
-        "vhost_wordlist": tools_config.get("ffuf", {}).get("vhost_wordlist", default_tools["vhost_wordlist"])
-    })
+    # Update tool paths from config
+    for tool_name in ["ffuf", "subfinder", "nmap", "httpx", "zaproxy", "subzy", "nuclei", "katana"]:
+        tools[tool_name] = tools_config.get(tool_name, {}).get("path", default_tools[tool_name])
+    
+    # Update ffuf wordlist paths from config
+    ffuf_config = tools_config.get("ffuf", {})
+    tools["ffuf_wordlist_dir"] = ffuf_config.get("wordlist_dir", default_tools["ffuf_wordlist_dir"])
+    tools["ffuf_wordlist_subdomain"] = ffuf_config.get("wordlist_subdomain", default_tools["ffuf_wordlist_subdomain"])
 
-    # Prompt for target if not provided
     target = args.target
     if not target:
-        target = input("Enter target (e.g., example.com or IP): ")
+        target = input(f"{Colors.WARNING}Enter target (e.g., example.com or IP): {Colors.ENDC}")
         if not target:
-            print("Error: Target is required.")
+            print(f"{Colors.FAIL}Error: Target is required.{Colors.ENDC}")
             sys.exit(1)
 
-    # Validate and create output directory
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    post_scan_mode = False
     while True:
+        if post_scan_mode:
+            choice = display_post_scan_menu()
+            if choice == "1":
+                post_scan_mode = False
+                continue
+            elif choice == "2":
+                print("Exiting...")
+                break
+            else:
+                print(f"{Colors.FAIL}Invalid option. Please try again.{Colors.ENDC}")
+                continue
+        
         choice = display_menu()
         if choice == "0":
             print("Exiting...")
             break
 
         if choice not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}:
-            print("Invalid option. Please try again.")
-            continue
-
-        additional_args = get_additional_args()
-        if additional_args is None:
-            print("Operation cancelled.")
+            print(f"{Colors.FAIL}Invalid option. Please try again.{Colors.ENDC}")
             continue
 
         command = []
         output_file = ""
         
-        # Map choices to tools and commands
-        if choice == "1":
-            check_tool(tools["amass"])
-            command = [tools["amass"], "enum", "-passive", "-d", target] + additional_args
-            output_file = output_dir / "amass_output.txt"
-        elif choice == "2":
-            check_tool(tools["subfinder"])
-            command = [tools["subfinder"], "-d", target] + additional_args
-            output_file = output_dir / "subfinder_output.txt"
-        elif choice == "3":
-            check_tool(tools["nmap"])
-            command = [tools["nmap"], "-sV", "-T4", target] + additional_args
-            output_file = output_dir / "nmap_output.txt"
-        elif choice == "4":
-            check_tool(tools["httpx"])
-            command = [tools["httpx"], "-u", target] + additional_args
-            output_file = output_dir / "httpx_output.txt"
-        elif choice == "5":
-            check_tool(tools["zaproxy"])
-            command = [tools["zaproxy"], "-cmd", "-quickurl", f"http://{target}", "-quickout", str(output_dir / "zap_output.xml")] + additional_args
-            output_file = output_dir / "zap_report.html" 
-        elif choice == "6":
+        # Build the base command first
+        if choice == "1": # Active Subdomain Enumeration - ffuf
             check_tool(tools["ffuf"])
-            if not Path(tools["ffuf_wordlist"]).exists():
-                print(f"Error: Wordlist {tools['ffuf_wordlist']} not found.")
+            wordlist_path = tools["ffuf_wordlist_subdomain"]
+            if not Path(wordlist_path).exists():
+                print(f"{Colors.FAIL}Error: Subdomain wordlist '{wordlist_path}' not found.{Colors.ENDC}")
                 continue
-            command = [tools["ffuf"], "-u", f"http://{target}/FUZZ", "-w", tools["ffuf_wordlist"]] + additional_args
-            output_file = output_dir / "ffuf_output.txt"
-        elif choice == "7":
+            # Using Host header fuzzing for subdomains
+            command = [tools["ffuf"], "-u", f"http://{target}", "-H", f"Host: FUZZ.{target}", "-w", wordlist_path]
+            output_file = output_dir / "ffuf_subdomain_output.txt"
+        elif choice == "2": # Passive Subdomain Enumeration - Subfinder
+            check_tool(tools["subfinder"])
+            command = [tools["subfinder"], "-d", target]
+            output_file = output_dir / "subfinder_output.txt"
+        elif choice == "3": # Network Scanning - Nmap
+            check_tool(tools["nmap"])
+            command = [tools["nmap"], "-sV", "-T4", target]
+            output_file = output_dir / "nmap_output.txt"
+        elif choice == "4": # Web Server Validation - Httpx
+            check_tool(tools["httpx"])
+            command = [tools["httpx"], "-u", f"http://{target}"]
+            output_file = output_dir / "httpx_output.txt"
+        elif choice == "5": # Web App Scanning - OWASP ZAP
+            check_tool(tools["zaproxy"])
+            command = [tools["zaproxy"], "-cmd", "-quickurl", f"http://{target}", "-quickout", str(output_dir / "zap_output.xml")]
+            output_file = output_dir / "zap_report.html"
+        elif choice == "6": # Directory Brute-Forcing - ffuf
+            check_tool(tools["ffuf"])
+            wordlist_path = tools["ffuf_wordlist_dir"]
+            if not Path(wordlist_path).exists():
+                print(f"{Colors.FAIL}Error: Directory wordlist '{wordlist_path}' not found.{Colors.ENDC}")
+                continue
+            command = [tools["ffuf"], "-u", f"http://{target}/FUZZ", "-w", wordlist_path]
+            output_file = output_dir / "ffuf_dir_output.txt"
+        elif choice == "7": # Subdomain Takeover Check - Subzy
             check_tool(tools["subzy"])
             subdomain_file = output_dir / "subfinder_output.txt"
             if not subdomain_file.exists():
-                print(f"Error: Run Subfinder (option 2) first to generate {subdomain_file}")
+                print(f"{Colors.FAIL}Error: Run Subfinder (option 2) first to generate {subdomain_file}{Colors.ENDC}")
                 continue
-            command = [tools["subzy"], "run", "--targets", str(subdomain_file)] + additional_args
+            command = [tools["subzy"], "run", "--targets", str(subdomain_file)]
             output_file = output_dir / "subzy_output.txt"
-        elif choice == "8":
+        elif choice == "8": # Vulnerability Scanning - Nuclei
             check_tool(tools["nuclei"])
-            command = [tools["nuclei"], "-u", target] + additional_args
+            command = [tools["nuclei"], "-u", target]
             output_file = output_dir / "nuclei_output.txt"
-        elif choice == "9":
-            check_tool(tools["ffuf"])
-            if not Path(tools["vhost_wordlist"]).exists():
-                print(f"Error: VHost wordlist {tools['vhost_wordlist']} not found.")
-                continue
-            command = [tools["ffuf"], "-u", f"http://{target}", "-H", f"Host: FUZZ.{target}", "-w", tools["vhost_wordlist"], "-fs", "4242"] + additional_args
-            output_file = output_dir / "ffuf_vhost_output.txt"
-        elif choice == "10":
+        elif choice == "9": # VHost Scanning - ffuf (Note: This is also Active Subdomain Enumeration)
+             check_tool(tools["ffuf"])
+             wordlist_path = tools["ffuf_wordlist_subdomain"]
+             if not Path(wordlist_path).exists():
+                 print(f"{Colors.FAIL}Error: Subdomain wordlist '{wordlist_path}' not found.{Colors.ENDC}")
+                 continue
+             command = [tools["ffuf"], "-u", f"http://{target}", "-H", f"Host: FUZZ.{target}", "-w", wordlist_path]
+             output_file = output_dir / "ffuf_vhost_output.txt"
+        elif choice == "10": # Web Crawling - Katana
             check_tool(tools["katana"])
-            command = [tools["katana"], "-u", f"http://{target}", "-d", "3", "-jc"] + additional_args
+            command = [tools["katana"], "-u", f"http://{target}", "-d", "5"]
             output_file = output_dir / "katana_output.txt"
 
+        if not command:
+            continue
+
+        print(f"\n{Colors.OKCYAN}Base command: {' '.join(command)}{Colors.ENDC}")
+        additional_args = get_additional_args()
+
+        if additional_args is None:
+            print("Operation cancelled.")
+            continue
+
+        command += additional_args
+        
         if command:
             run_tool(command, output_file)
+            post_scan_mode = True
 
 if __name__ == "__main__":
     main()

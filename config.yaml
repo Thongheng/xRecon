@@ -1,21 +1,23 @@
+# Configuration for the All-in-One Recon Tool
+
 tools:
-  amass:
-    path: /usr/local/bin/amass
   subfinder:
     path: subfinder
   nmap:
-    path: /usr/bin/nmap
+    path: nmap
   httpx:
     path: httpx
   zaproxy:
-    path: zaproxy
-  ffuf:
-    path: ffuf
-    wordlist: /usr/share/wordlists/dirb/common.txt
-    vhost_wordlist: /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+    path: zaproxy # Path to the zap.sh script
   subzy:
     path: subzy
   nuclei:
     path: nuclei
   katana:
     path: katana
+  ffuf:
+    path: ffuf
+    # Wordlist for Directory Brute-Forcing (e.g., /admin, /api)
+    wordlist_dir: "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"
+    # Wordlist for Active Subdomain Enumeration (e.g., admin, api, dev)
+    wordlist_subdomain: "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
