@@ -1,0 +1,21 @@
+tools:
+  amass:
+    path: /usr/local/bin/amass
+  subfinder:
+    path: subfinder
+  nmap:
+    path: /usr/bin/nmap
+  httpx:
+    path: httpx
+  zaproxy:
+    path: zaproxy
+  ffuf:
+    path: ffuf
+    wordlist: /usr/share/wordlists/dirb/common.txt
+    vhost_wordlist: /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+  subzy:
+    path: subzy
+  nuclei:
+    path: nuclei
+  katana:
+    path: katana
