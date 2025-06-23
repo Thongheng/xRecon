@@ -13,26 +13,47 @@ def check_tool(tool_path):
         sys.exit(1)
 
 def run_tool(command, output_file):
-    """Run a command, display it, and show verbose output."""
+    """
+    Run a command, display its output in real-time, and save it to a file.
+    """
     print(f"\nRunning command: {' '.join(command)}\n")
     try:
+        # Use Popen to start the process without blocking
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            bufsize=1,  # Line-buffered
+        )
+
+        # Open the output file to write to
         with open(output_file, "w") as f:
-            process = subprocess.run(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=True
-            )
-            print(process.stdout)
-            f.write(process.stdout)
-        print(f"\nResults saved to {output_file}")
-    except subprocess.CalledProcessError as e:
-        print(f"Error running command: {e}")
-        print(e.output)
-        sys.exit(1)
+            # Read the output line by line in real-time
+            # The loop will end when the subprocess finishes and closes its stdout
+            for line in process.stdout:
+                # Print the line to the console in real-time
+                sys.stdout.write(line)
+                # Write the same line to the output file
+                f.write(line)
+
+        # Wait for the process to terminate and get its return code
+        process.wait()
+
+        # Check for errors after the process has finished
+        if process.returncode != 0:
+            print(f"\nError: Command failed with return code {process.returncode}", file=sys.stderr)
+            # You might want to handle this more gracefully depending on your needs
+
+        print(f"\n\nResults saved to {output_file}")
+
     except FileNotFoundError:
-        print(f"Error: Cannot write to {output_file}")
+        print(f"Error: Command '{command[0]}' not found. Please ensure it is installed and in your system's PATH.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
         sys.exit(1)
 
 def display_menu():
@@ -58,7 +79,7 @@ def load_config():
         with open(config_file, "r") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
-        print(f"Error: {config_file} not found. Using default settings.")
+        print(f"Info: {config_file} not found. Using default tool paths.")
         return {}
     except yaml.YAMLError as e:
         print(f"Error parsing {config_file}: {e}")
@@ -141,6 +162,9 @@ def main():
             print("Operation cancelled.")
             continue
 
+        command = []
+        output_file = ""
+        
         # Map choices to tools and commands
         if choice == "1":
             check_tool(tools["amass"])
@@ -155,25 +179,18 @@ def main():
             command = [tools["nmap"], "-sV", target] + additional_args
             output_file = output_dir / "nmap_output.txt"
         elif choice == "4":
+            # httpx is handled differently as it may need piped input
+            # This example assumes you want to run it on the primary target
             check_tool(tools["httpx"])
-            command = [tools["httpx"], "-l", "/dev/stdin"] + additional_args
+            print(f"\nRunning command: echo {target} | {tools['httpx']} {' '.join(additional_args)}\n")
+            # For simplicity, we'll run httpx on the single target.
+            # A more advanced version might read subdomains from a file.
+            command = [tools["httpx"], "-u", target] + additional_args
             output_file = output_dir / "httpx_output.txt"
-            with open(output_file, "w") as f:
-                process = subprocess.run(
-                    command,
-                    input=target,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True
-                )
-                print(process.stdout)
-                f.write(process.stdout)
-            print(f"\nResults saved to {output_file}")
-            continue
         elif choice == "5":
             check_tool(tools["zaproxy"])
-            command = [tools["zaproxy"], "-cmd", "-quickurl", f"http://{target}", "-quickout", str(output_dir / "zap_output.txt")] + additional_args
-            output_file = output_dir / "zap_output.txt"
+            command = [tools["zaproxy"], "-cmd", "-quickurl", f"http://{target}", "-quickout", str(output_dir / "zap_output.xml")] + additional_args
+            output_file = output_dir / "zap_report.html" # ZAP often outputs multiple formats
         elif choice == "6":
             check_tool(tools["ffuf"])
             if not Path(tools["ffuf_wordlist"]).exists():
@@ -187,7 +204,7 @@ def main():
             if not subdomain_file.exists():
                 print(f"Error: Run Subfinder (option 2) first to generate {subdomain_file}")
                 continue
-            command = [tools["subzy"], "-targets", str(subdomain_file)] + additional_args
+            command = [tools["subzy"], "run", "--targets", str(subdomain_file)] + additional_args
             output_file = output_dir / "subzy_output.txt"
         elif choice == "8":
             check_tool(tools["nuclei"])
@@ -205,7 +222,11 @@ def main():
             command = [tools["katana"], "-u", f"http://{target}", "-d", "3", "-jc"] + additional_args
             output_file = output_dir / "katana_output.txt"
 
-        run_tool(command, output_file)
+        # Note: The original special handling for choice "4" (httpx) is removed
+        # as the generic run_tool can now handle it. If you need to pipe
+        # input from other commands, that would require more specific logic.
+        if command:
+            run_tool(command, output_file)
 
 if __name__ == "__main__":
     main()
