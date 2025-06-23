@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import yaml
+import threading
 
 def check_tool(tool_path):
     """Check if a tool is installed at the specified path."""
@@ -14,11 +15,16 @@ def check_tool(tool_path):
 
 def run_tool(command, output_file):
     """
-    Run a command, display its output in real-time, and save it to a file.
+    Run a command, display its output in real-time, and only save the output
+    to a file if the command completes successfully without being cancelled.
     """
     print(f"\nRunning command: {' '.join(command)}\n")
+
+    stop_event = threading.Event()
+    process = None
+    output_lines = []  # Store output in memory instead of writing directly to file
+
     try:
-        # Use Popen to start the process without blocking
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -26,35 +32,66 @@ def run_tool(command, output_file):
             text=True,
             encoding='utf-8',
             errors='replace',
-            bufsize=1,  # Line-buffered
+            bufsize=1,
         )
 
-        # Open the output file to write to
-        with open(output_file, "w") as f:
-            # Read the output line by line in real-time
-            # The loop will end when the subprocess finishes and closes its stdout
+        def monitor_and_stream_output(lines_buffer):
+            """This function runs in a thread, printing output and storing it in a buffer."""
             for line in process.stdout:
-                # Print the line to the console in real-time
+                if stop_event.is_set():
+                    break
                 sys.stdout.write(line)
-                # Write the same line to the output file
-                f.write(line)
+                lines_buffer.append(line)
+        
+        output_thread = threading.Thread(target=monitor_and_stream_output, args=(output_lines,))
+        output_thread.start()
 
-        # Wait for the process to terminate and get its return code
-        process.wait()
-
-        # Check for errors after the process has finished
-        if process.returncode != 0:
-            print(f"\nError: Command failed with return code {process.returncode}", file=sys.stderr)
-            # You might want to handle this more gracefully depending on your needs
-
-        print(f"\n\nResults saved to {output_file}")
+        print("---")
+        print(">>> Tool is running. Type 'q' and press Enter to cancel (output will not be saved).")
+        print("---\n")
+        
+        while output_thread.is_alive():
+            try:
+                user_input = input() 
+                if user_input.strip().lower() == 'q':
+                    print("\n[INFO] 'q' received. Cancelling operation...")
+                    stop_event.set()
+                    break
+            except (EOFError, KeyboardInterrupt):
+                print("\n[INFO] Interruption detected. Cancelling operation...")
+                stop_event.set()
+                break
 
     except FileNotFoundError:
         print(f"Error: Command '{command[0]}' not found. Please ensure it is installed and in your system's PATH.", file=sys.stderr)
-        sys.exit(1)
+        return
     except Exception as e:
         print(f"An unexpected error occurred: {e}", file=sys.stderr)
-        sys.exit(1)
+        return
+    finally:
+        # Cleanup Section
+        if process and stop_event.is_set():
+            process.terminate()
+
+        if 'output_thread' in locals() and output_thread.is_alive():
+            output_thread.join()
+        
+        return_code = process.wait() if process else -1
+
+        # --- Conditional Saving Logic ---
+        if not stop_event.is_set() and return_code == 0:
+            print(f"\nCommand completed successfully. Saving output to {output_file}...")
+            try:
+                with open(output_file, "w") as f:
+                    f.writelines(output_lines)
+                print(f"Results saved to {output_file}")
+            except IOError as e:
+                print(f"\nError: Could not write to file {output_file}. {e}", file=sys.stderr)
+        elif stop_event.is_set():
+            print("\nOperation cancelled by user. Output was NOT saved.")
+        else:
+            print(f"\nCommand finished with an error (code: {return_code}). Output was NOT saved.", file=sys.stderr)
+
 
 def display_menu():
     """Display the tool selection menu."""
@@ -69,7 +106,7 @@ def display_menu():
     print("8. Vulnerability Scanning - Nuclei")
     print("9. VHost Scanning - ffuf")
     print("10. Web Crawling - Katana")
-    print("20. Exit")
+    print("0. Exit")
     return input("Select an option: ")
 
 def load_config():
@@ -148,7 +185,7 @@ def main():
 
     while True:
         choice = display_menu()
-        if choice == "20":
+        if choice == "0":
             print("Exiting...")
             break
 
@@ -156,7 +193,6 @@ def main():
             print("Invalid option. Please try again.")
             continue
 
-        # Get additional arguments
         additional_args = get_additional_args()
         if additional_args is None:
             print("Operation cancelled.")
@@ -176,21 +212,16 @@ def main():
             output_file = output_dir / "subfinder_output.txt"
         elif choice == "3":
             check_tool(tools["nmap"])
-            command = [tools["nmap"], "-sV", target] + additional_args
+            command = [tools["nmap"], "-sV", "-T4", target] + additional_args
             output_file = output_dir / "nmap_output.txt"
         elif choice == "4":
-            # httpx is handled differently as it may need piped input
-            # This example assumes you want to run it on the primary target
             check_tool(tools["httpx"])
-            print(f"\nRunning command: echo {target} | {tools['httpx']} {' '.join(additional_args)}\n")
-            # For simplicity, we'll run httpx on the single target.
-            # A more advanced version might read subdomains from a file.
             command = [tools["httpx"], "-u", target] + additional_args
             output_file = output_dir / "httpx_output.txt"
         elif choice == "5":
             check_tool(tools["zaproxy"])
             command = [tools["zaproxy"], "-cmd", "-quickurl", f"http://{target}", "-quickout", str(output_dir / "zap_output.xml")] + additional_args
-            output_file = output_dir / "zap_report.html" # ZAP often outputs multiple formats
+            output_file = output_dir / "zap_report.html" 
         elif choice == "6":
             check_tool(tools["ffuf"])
             if not Path(tools["ffuf_wordlist"]).exists():
@@ -222,9 +253,6 @@ def main():
             command = [tools["katana"], "-u", f"http://{target}", "-d", "3", "-jc"] + additional_args
             output_file = output_dir / "katana_output.txt"
 
-        # Note: The original special handling for choice "4" (httpx) is removed
-        # as the generic run_tool can now handle it. If you need to pipe
-        # input from other commands, that would require more specific logic.
         if command:
             run_tool(command, output_file)
 
