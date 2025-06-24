@@ -1,1 +1,1 @@
-sudo ln -s /opt/WEB/ReconX/recon.sh /usr/bin/reconx
+sudo ln -s /opt/WEB/ReconX/ReconX.sh /usr/bin/reconx

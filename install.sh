@@ -1,5 +1,5 @@
 #!/bin/bash
-# Minimal installation script for the Bash Recon Tool.
+# Minimal installation script for recon tools.
 # Must be run with sudo privileges (e.g., sudo ./install.sh)
 
 set -e # Exit script immediately if any command fails
@@ -26,6 +26,6 @@ echo " "
 echo "--- IMPORTANT ---"
 echo "1. Manual Step: Install OWASP ZAP from https://www.zaproxy.org/download/"
 echo "   (Required for option 10)."
-echo "2. Add Go tools to your permanent PATH by running:"
+echo "2. Add Go tools to your PATH by running:"
 echo "   echo 'export PATH=\$PATH:\$HOME/go/bin' >> ~/.bashrc && source ~/.bashrc"
 echo "--- Installation Complete ---"
