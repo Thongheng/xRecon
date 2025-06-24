@@ -17,7 +17,8 @@ tools:
     path: katana
   ffuf:
     path: ffuf
-    # Wordlist for Directory Brute-Forcing (e.g., /admin, /api)
     wordlist_dir: "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"
-    # Wordlist for Active Subdomain Enumeration (e.g., admin, api, dev)
-    wordlist_subdomain: "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+    # Wordlist for Active Subdomain Enumeration (option 1)
+    wordlist_subdomain: "/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt"
+    # Wordlist for VHost Scanning (option 9)
+    wordlist_vhost: "/usr/share/seclists/Discovery/DNS/namelist.txt"
