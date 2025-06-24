@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# A class to hold ANSI color codes for terminal output
+# Color codes
 C_HEADER='\033[95m'
 C_OKBLUE='\033[94m'
 C_OKCYAN='\033[96m'
@@ -11,7 +11,6 @@ C_ENDC='\033[0m'
 C_BOLD='\033[1m'
 
 # --- Default Tool and Wordlist Paths ---
-# These will be used if recon.conf is not found or a variable is not set.
 TOOL_FFUF="ffuf"
 TOOL_SUBFINDER="subfinder"
 TOOL_NMAP="nmap"
@@ -27,12 +26,9 @@ WORDLIST_VHOST="/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.t
 
 # --- Function to load config from the script's directory ---
 load_config() {
-    # Reliably get the directory where the script is located
     SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
     CONFIG_FILE="$SCRIPT_DIR/recon.conf"
-
     if [ -f "$CONFIG_FILE" ]; then
-        # source the config file to override defaults
         source "$CONFIG_FILE"
     else
         echo -e "${C_OKBLUE}Info: Config file not found at '$CONFIG_FILE'. Using default tool paths.${C_ENDC}"
@@ -62,14 +58,16 @@ display_menu() {
     echo "10. Deep Web App Scanning - OWASP ZAP"
     echo -e "${C_HEADER}------------------------------------------${C_ENDC}"
     echo "0. Exit"
-    read -p "$(echo -e ${C_WARNING}Select an option: ${C_ENDC})" choice
+    echo -ne "${C_WARNING}Select an option: ${C_ENDC}"
+    read choice
 }
 
 display_post_scan_menu() {
     echo -e "\n${C_HEADER}${C_BOLD}Scan Finished${C_ENDC}"
     echo "1. Continue (Return to main menu)"
     echo "2. Quit"
-    read -p "$(echo -e ${C_WARNING}Select an option: ${C_ENDC})" choice
+    echo -ne "${C_WARNING}Select an option: ${C_ENDC}"
+    read choice
 }
 
 # --- Load Configuration ---
@@ -82,7 +80,9 @@ OUTPUT_DIR="."
 if [ -n "$1" ]; then
     TARGET=$1
 else
-    read -p "$(echo -e ${C_WARNING}Enter target (e.g., example.com or IP): ${C_ENDC})" TARGET
+    # ROBUST PROMPT: Use simple echo and read on separate lines.
+    echo -e -n "${C_WARNING}Enter target (e.g., example.com or IP): ${C_ENDC}"
+    read TARGET
 fi
 
 if [ -z "$TARGET" ]; then
@@ -90,7 +90,6 @@ if [ -z "$TARGET" ]; then
     exit 1
 fi
 
-# Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
 # --- Main Loop ---
@@ -165,12 +164,10 @@ while true; do
             echo -e "\n${C_OKBLUE}Edit command below or press Enter to run.${C_ENDC}"
             echo -e "${C_OKBLUE}(Press Ctrl+D at empty prompt to cancel)${C_ENDC}"
             
-            # Use read with -e for readline editing and -i to set initial text
             read -e -p "$(echo -e ${C_OKCYAN}'> '${C_ENDC})" -i "$base_command" final_command
 
             if [ -n "$final_command" ]; then
                 echo -e "\n${C_OKCYAN}Executing command: $final_command${C_ENDC}\n"
-                # Use eval to correctly execute the command string with all its arguments and redirections
                 eval "$final_command"
                 post_scan_mode=1
             else
