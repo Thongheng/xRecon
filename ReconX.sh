@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# A class to hold ANSI color codes for terminal output
+# Color codes
 C_HEADER='\033[95m'
-C_OKBLUE='\033[94m'
 C_OKCYAN='\033[96m'
 C_OKGREEN='\033[92m'
 C_WARNING='\033[93m'
@@ -12,29 +11,27 @@ C_BOLD='\033[1m'
 
 # ==============================================================================
 # --- SCRIPT CONFIGURATION ---
-# All tool paths and wordlist paths are defined here.
-# Edit these variables directly to change the script's behavior.
 # ==============================================================================
-
-# --- Tool Paths (use command name if in PATH, or an absolute path) ---
+TOOL_GOBUSTER="gobuster"
 TOOL_FFUF="ffuf"
 TOOL_SUBFINDER="subfinder"
 TOOL_NMAP="nmap"
 TOOL_HTTPX="httpx"
+**/nmap"
 TOOL_ZAPROXY="zaproxy"
 TOOL_SUBZY="subzy"
 TOOL_NUCLEI="nuclei"
 TOOL_KATANA="katana"
-
-# --- Wordlist Paths ---
+TOOL_WAFW00F="wafw00f"
+TOOL_GOWITNESS="gowitness"
+TOOL_WHATWEB="whatweb"
+TOOL_DNSRECON="dnsrecon"
 WORDLIST_DIR="/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"
 WORDLIST_SUBDOMAIN="/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
 WORDLIST_VHOST="/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt"
-
 # ==============================================================================
 # --- End of Configuration ---
 # ==============================================================================
-
 
 # --- Helper function to check if a tool is installed ---
 check_tool() {
@@ -44,138 +41,233 @@ check_tool() {
     fi
 }
 
-# --- Menu Functions ---
-display_menu() {
-    echo -e "\n${C_HEADER}${C_BOLD}All-in-One Recon Tool (Bash Edition)${C_ENDC}"
-    echo "1. Network Port Scanning - Nmap"
-    echo -e "2. ${C_BOLD}Passive${C_ENDC} Subdomain Enumeration - Subfinder"
-    echo -e "3. ${C_BOLD}Active${C_ENDC} Subdomain Enumeration - ffuf"
-    echo "4. VHost Scanning - ffuf"
-    echo "5. Web Server Validation (HTTP/HTTPS) - Httpx"
-    echo "6. Subdomain Takeover Check - Subzy"
-    echo "7. Web Crawling - Katana"
-    echo "8. Directory Brute-Forcing - ffuf"
-    echo "9. Vulnerability Scanning - Nuclei"
-    echo "10. Deep Web App Scanning - OWASP ZAP"
-    echo -e "${C_HEADER}------------------------------------------${C_ENDC}"
-    echo "0. Exit"
-    echo -ne "${C_WARNING}Select an option: ${C_ENDC}"
-    read choice
+# --- Helper function to validate domain format ---
+validate_domain() {
+    if ! echo "$1" | grep -Pq '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
+        echo -e "${C_FAIL}Error: Invalid domain format: $1${C_ENDC}"
+        exit 1
+    fi
 }
 
-display_post_scan_menu() {
-    echo -e "\n${C_HEADER}${C_BOLD}Scan Finished${C_ENDC}"
-    echo "1. Continue (Return to main menu)"
-    echo "2. Quit"
-    echo -ne "${C_WARNING}Select an option: ${C_ENDC}"
-    read choice
+# --- Usage/Help Function ---
+usage() {
+    echo -e "${C_BOLD}All-in-One Recon Tool (Bash Edition)${C_ENDC}"
+    echo "A wrapper script to run various reconnaissance tools via command-line flags."
+    echo ""
+    echo -e "${C_BOLD}USAGE:${C_ENDC}"
+    echo "  $0 <target> [scan_flag]"
+    echo ""
+    echo -e "${C_BOLD}EXAMPLE:${C_ENDC}"
+    echo "  $0 example.com --tech"
+    echo "  $0 example.com --all"
+    echo ""
+    echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
+    echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
+    echo "  --nmap               Network Port Scanning"
+    echo "  --subfinder          Passive Subdomain Enumeration"
+    echo "  --gobuster-sub       Active Subdomain Enumeration (gobuster)"
+    echo "  --dns                DNS Enumeration (dnsrecon)"
+    echo "  --vhost              VHost Scanning (ffuf)"
+    echo "  --httpx              Web Server Validation"
+    echo "  --subzy              Subdomain Takeover Check"
+    echo "  --katana             Web Crawling"
+    echo "  --dir                Directory Brute-Forcing (ffuf)"
+    echo "  --nuclei             Vulnerability Scanning"
+    echo "  --zap                Deep Web App Scanning (OWASP ZAP)"
+    echo "  --waf                Web Application Firewall Detection (wafw00f)"
+    echo "  --screenshots        Take screenshots of live web pages (gowitness)"
+    echo "  --tech               Technology Fingerprinting (whatweb)"
+    echo "  -h, --help           Show this help message"
+    exit 1
 }
 
 # --- Argument Parsing ---
 TARGET=""
-# Use a more descriptive name for the output directory variable
-PROJECT_DIR="."
+SCAN_MODE=""
 
-if [ -n "$1" ]; then
-    TARGET=$1
-else
-    echo -ne "${C_WARNING}Enter target (e.g., example.com or IP): ${C_ENDC}"
-    read TARGET
+if [ "$#" -eq 0 ]; then
+    echo -e "${C_FAIL}Error: No target or scan flag specified.${C_ENDC}"
+    usage
 fi
 
-if [ -z "$TARGET" ]; then
-    echo -e "${C_FAIL}Error: Target is required.${C_ENDC}"
-    exit 1
-fi
-
-# Create a directory for the target to keep results organized
-PROJECT_DIR="$TARGET-recon"
-mkdir -p "$PROJECT_DIR"
-echo -e "${C_OKBLUE}Results will be saved in: ${PROJECT_DIR}${C_ENDC}"
-
-
-# --- Main Loop ---
-post_scan_mode=0
-while true; do
-    if [ "$post_scan_mode" -eq 1 ]; then
-        display_post_scan_menu
-        case "$choice" in
-            1) post_scan_mode=0 ;;
-            2) echo "Exiting..."; break ;;
-            *) echo -e "${C_FAIL}Invalid option. Please try again.${C_ENDC}" ;;
-        esac
-    else
-        display_menu
-        base_command=""
-        
-        case "$choice" in
-            0) echo "Exiting..."; break ;;
-            1) # Nmap
-                check_tool "$TOOL_NMAP"
-                base_command="$TOOL_NMAP -sV -T4 $TARGET -oN $PROJECT_DIR/nmap_output.txt"
-                ;;
-            2) # Subfinder
-                check_tool "$TOOL_SUBFINDER"
-                base_command="$TOOL_SUBFINDER -d $TARGET -o $PROJECT_DIR/subfinder_output.txt"
-                ;;
-            3) # ffuf Active Subdomain
-                check_tool "$TOOL_FFUF"
-                [ ! -f "$WORDLIST_SUBDOMAIN" ] && { echo -e "${C_FAIL}Error: Subdomain wordlist not found at '$WORDLIST_SUBDOMAIN'${C_ENDC}"; continue; }
-                base_command="$TOOL_FFUF -u http://FUZZ.$TARGET -w $WORDLIST_SUBDOMAIN -o $PROJECT_DIR/ffuf_subdomain_output.json -of json"
-                ;;
-            4) # ffuf VHost
-                check_tool "$TOOL_FFUF"
-                [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; continue; }
-                base_command="$TOOL_FFUF -u http://$TARGET -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST -o $PROJECT_DIR/ffuf_vhost_output.json -of json"
-                ;;
-            5) # Httpx
-                check_tool "$TOOL_HTTPX"
-                echo -e "${C_WARNING}Note: Httpx is best used with a list of hosts from another tool's output.${C_ENDC}"
-                base_command="$TOOL_HTTPX -u http://$TARGET -o $PROJECT_DIR/httpx_output.txt"
-                ;;
-            6) # Subzy
-                check_tool "$TOOL_SUBZY"
-                SUBFINDER_OUTPUT="$PROJECT_DIR/subfinder_output.txt"
-                [ ! -f "$SUBFINDER_OUTPUT" ] && { echo -e "${C_FAIL}Error: Run Subfinder (option 2) first to generate $SUBFINDER_OUTPUT${C_ENDC}"; continue; }
-                base_command="$TOOL_SUBZY run --targets $SUBFINDER_OUTPUT --output $PROJECT_DIR/subzy_output.txt"
-                ;;
-            7) # Katana
-                check_tool "$TOOL_KATANA"
-                base_command="$TOOL_KATANA -u http://$TARGET -d 5 -o $PROJECT_DIR/katana_output.txt"
-                ;;
-            8) # ffuf Directory
-                check_tool "$TOOL_FFUF"
-                [ ! -f "$WORDLIST_DIR" ] && { echo -e "${C_FAIL}Error: Directory wordlist not found at '$WORDLIST_DIR'${C_ENDC}"; continue; }
-                base_command="$TOOL_FFUF -u http://$TARGET/FUZZ -w $WORDLIST_DIR -o $PROJECT_DIR/ffuf_dir_output.json -of json"
-                ;;
-            9) # Nuclei
-                check_tool "$TOOL_NUCLEI"
-                base_command="$TOOL_NUCLEI -u $TARGET -o $PROJECT_DIR/nuclei_output.txt"
-                ;;
-            10) # OWASP ZAP
-                check_tool "$TOOL_ZAPROXY"
-                base_command="$TOOL_ZAPROXY -cmd -quickurl http://$TARGET -quickreport $PROJECT_DIR/zap_report.html"
-                ;;
-            *)
-                echo -e "${C_FAIL}Invalid option. Please try again.${C_ENDC}"
-                continue
-                ;;
-        esac
-
-        if [ -n "$base_command" ]; then
-            echo -e "\n${C_OKBLUE}Edit command below or press Enter to run.${C_ENDC}"
-            echo -e "${C_OKBLUE}(Press Ctrl+D at empty prompt to cancel)${C_ENDC}"
-            
-            read -e -p "$(echo -e ${C_OKCYAN}'> '${C_ENDC})" -i "$base_command" final_command
-
-            if [ -n "$final_command" ]; then
-                echo -e "\n${C_OKCYAN}Executing command: $final_command${C_ENDC}\n"
-                # Use eval to correctly execute the command string with all its arguments and redirections
-                eval "$final_command"
-                post_scan_mode=1
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --all) SCAN_MODE="all" ;;
+        --nmap) SCAN_MODE="nmap" ;;
+        --subfinder) SCAN_MODE="subfinder" ;;
+        --gobuster-sub) SCAN_MODE="gobuster-sub" ;;
+        --dns) SCAN_MODE="dns" ;;
+        --vhost) SCAN_MODE="vhost" ;;
+        --httpx) SCAN_MODE="httpx" ;;
+        --subzy) SCAN_MODE="subzy" ;;
+        --katana) SCAN_MODE="katana" ;;
+        --dir) SCAN_MODE="dir" ;;
+        --nuclei) SCAN_MODE="nuclei" ;;
+        --zap) SCAN_MODE="zap" ;;
+        --waf) SCAN_MODE="waf" ;;
+        --screenshots) SCAN_MODE="screenshots" ;;
+        --tech) SCAN_MODE="tech" ;;
+        -h|--help) usage ;;
+        *)
+            if [ -z "$TARGET" ]; then
+                TARGET="$1"
             else
-                echo "Operation cancelled."
+                echo -e "${C_FAIL}Error: Unknown argument or multiple targets specified: $1${C_ENDC}"
+                usage
             fi
-        fi
-    fi
+            ;;
+    esac
+    shift
 done
+
+# --- Validation ---
+if [ -z "$TARGET" ]; then
+    echo -e "${C_FAIL}Error: Target not specified.${C_ENDC}"
+    usage
+fi
+
+if [ -z "$SCAN_MODE" ]; then
+    echo -e "${C_FAIL}Error: No scan flag specified. Please provide a scan flag (e.g., --all, --nmap).${C_ENDC}"
+    usage
+fi
+
+# Validate domain format
+validate_domain "$TARGET"
+
+# --- Command Execution Functions ---
+execute_interactive() {
+    echo -e "${C_HEADER}Edit command below and press Enter to run.${C_ENDC}"
+    read -e -p "$(echo -e ${C_OKCYAN}'> '${C_ENDC})" -i "$1" final_command
+    eval "$final_command"
+    if [ $? -ne 0 ]; then
+        echo -e "${C_FAIL}Error: Interactive command failed: $final_command${C_ENDC}"
+        exit 1
+    fi
+}
+
+# --- Automated Workflow ---
+run_all_workflow() {
+    echo -e "${C_HEADER}--- Starting Automated Workflow for $TARGET ---${C_ENDC}"
+
+    # 1. Subfinder, Gobuster, and Dnsrecon in parallel
+    echo -e "\n${C_OKCYAN}[WORKFLOW] Running Subfinder, Gobuster, and Dnsrecon in parallel for subdomain enumeration...${C_ENDC}"
+    check_tool "$TOOL_SUBFINDER"
+    check_tool "$TOOL_GOBUSTER"
+    check_tool "$TOOL_DNSRECON"
+    [ ! -f "$WORDLIST_SUBDOMAIN" ] && { echo -e "${C_FAIL}Error: Subdomain wordlist not found at '$WORDLIST_SUBDOMAIN'${C_ENDC}"; exit 1; }
+    execute_interactive "$TOOL_SUBFINDER -d $TARGET -o subfinder_output.txt" &
+    execute_interactive "$TOOL_GOBUSTER dns -d $TARGET -w $WORDLIST_SUBDOMAIN -o gobuster_subdomain_output.txt" &
+    execute_interactive "$TOOL_DNSRECON -d $TARGET -t brf -w $WORDLIST_SUBDOMAIN -f -n 8.8.8.8 -z -o dnsrecon_output.txt" &
+    wait
+    echo -e "${C_OKGREEN}Subfinder, Gobuster, and Dnsrecon finished. Results saved to subfinder_output.txt, gobuster_subdomain_output.txt, and dnsrecon_output.txt${C_ENDC}"
+
+    # 2. Combine and Unique
+    echo -e "\n${C_OKCYAN}[WORKFLOW] Combining and sorting results...${C_ENDC}"
+    cat subfinder_output.txt gobuster_subdomain_output.txt dnsrecon_output.txt 2>/dev/null | sort -u > all_subdomains.txt
+    echo -e "${C_OKGREEN}Combined unique subdomains saved to all_subdomains.txt${C_ENDC}"
+
+    # 3. Httpx
+    echo -e "\n${C_OKCYAN}[WORKFLOW] Running Httpx to find live web servers...${C_ENDC}"
+    check_tool "$TOOL_HTTPX"
+    execute_interactive "$TOOL_HTTPX -l all_subdomains.txt -o httpx_live_servers.txt"
+    echo -e "${C_OKGREEN}Httpx finished. Live web servers saved to httpx_live_servers.txt${C_ENDC}"
+
+    # 4. Screenshots
+    echo -e "\n${C_OKCYAN}[WORKFLOW] Taking screenshots with Gowitness...${C_ENDC}"
+    check_tool "$TOOL_GOWITNESS"
+    execute_interactive "$TOOL_GOWITNESS file -f httpx_live_servers.txt -P screenshots"
+    echo -e "${C_OKGREEN}Gowitness finished. Screenshots saved to screenshots directory${C_ENDC}"
+
+    echo -e "\n${C_HEADER}--- Automated Workflow Finished ---${C_ENDC}"
+    echo -e "${C_BOLD}Next steps suggestion:${C_ENDC}"
+    echo "  - Review screenshots in screenshots directory."
+    echo "  - Run --nuclei against 'httpx_live_servers.txt' for vulnerability scanning."
+}
+
+# --- Main Command Logic ---
+if [ "$SCAN_MODE" = "all" ]; then
+    run_all_workflow
+    exit 0
+fi
+
+base_command=""
+
+case "$SCAN_MODE" in
+    "subfinder")
+        check_tool "$TOOL_SUBFINDER"
+        base_command="$TOOL_SUBFINDER -d $TARGET -o subfinder_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "gobuster-sub")
+        check_tool "$TOOL_GOBUSTER"
+        [ ! -f "$WORDLIST_SUBDOMAIN" ] && { echo -e "${C_FAIL}Error: Subdomain wordlist not found at '$WORDLIST_SUBDOMAIN'${C_ENDC}"; exit 1; }
+        base_command="$TOOL_GOBUSTER dns -d $TARGET -w $WORDLIST_SUBDOMAIN -o gobuster_subdomain_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "dns")
+        check_tool "$TOOL_DNSRECON"
+        base_command="$TOOL_DNSRECON -d $TARGET -t brf -w $WORDLIST_SUBDOMAIN -f -n 8.8.8.8 -o dnsrecon_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "httpx")
+        check_tool "$TOOL_HTTPX"
+        echo -e "${C_WARNING}Note: Httpx is best used with a list of hosts from another tool's output.${C_ENDC}"
+        base_command="$TOOL_HTTPX -u https://$TARGET -o httpx_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "waf")
+        check_tool "$TOOL_WAFW00F"
+        base_command="$TOOL_WAFW00F -a $TARGET"
+        execute_interactive "$base_command"
+        ;;
+    "tech")
+        check_tool "$TOOL_WHATWEB"
+        base_command="$TOOL_WHATWEB $TARGET"
+        execute_interactive "$base_command"
+        ;;
+    "nmap")
+        check_tool "$TOOL_NMAP"
+        base_command="$TOOL_NMAP -sV -sC -Pn -v $TARGET -oN nmap_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "vhost")
+        check_tool "$TOOL_FFUF"
+        [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
+        base_command="$TOOL_FFUF -u https://$TARGET -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST -o ffuf_vhost_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "subzy")
+        check_tool "$TOOL_SUBZY"
+        [ ! -f "subfinder_output.txt" ] && { echo -e "${C_FAIL}Error: Run --subfinder first to generate subfinder_output.txt${C_ENDC}"; exit 1; }
+        base_command="$TOOL_SUBZY run --targets subfinder_output.txt --output subzy_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "katana")
+        check_tool "$TOOL_KATANA"
+        base_command="$TOOL_KATANA -u https://$TARGET -d 5 -o katana_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "dir")
+        check_tool "$TOOL_FFUF"
+        [ ! -f "$WORDLIST_DIR" ] && { echo -e "${C_FAIL}Error: Directory wordlist not found at '$WORDLIST_DIR'${C_ENDC}"; exit 1; }
+        base_command="$TOOL_FFUF -u https://$TARGET/FUZZ -w $WORDLIST_DIR -o ffuf_dir_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "nuclei")
+        check_tool "$TOOL_NUCLEI"
+        base_command="$TOOL_NUCLEI -u $TARGET -o nuclei_output.txt"
+        execute_interactive "$base_command"
+        ;;
+    "zap")
+        check_tool "$TOOL_ZAPROXY"
+        echo -e "${C_WARNING}Note: ZAP output must be configured manually (e.g., add '-quickreport report.html')${C_ENDC}"
+        base_command="$TOOL_ZAPROXY -cmd -quickurl https://$TARGET"
+        execute_interactive "$base_command"
+        ;;
+    "screenshots")
+        check_tool "$TOOL_GOWITNESS"
+        echo -e "${C_WARNING}This tool requires a file with a list of URLs (e.g., from --all or --httpx).${C_ENDC}"
+        base_command="$TOOL_GOWITNESS file -f httpx_live_servers.txt -P screenshots"
+        execute_interactive "$base_command"
+        ;;
+esac

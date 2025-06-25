@@ -1,5 +1,1 @@
-- enhance funtionality DNS
-- Full web scan optiosn 
-    - Subdomain 
-    - Live host check 
-    - Crawling 
+- enhance funtionality and command of each tool

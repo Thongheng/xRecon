@@ -1,1 +1,0 @@
-sudo ln -s /opt/WEB/ReconX/ReconX.sh /usr/bin/reconx
