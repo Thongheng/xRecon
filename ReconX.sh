@@ -50,7 +50,7 @@ validate_domain() {
 
 # --- Usage/Help Function ---
 usage() {
-    echo -e "${C_BOLD}All-in-One Recon Tool (Bash Edition)${C_ENDC}"
+    echo -e "${C_BOLD}All-in-One Recon Tool${C_ENDC}"
     echo "A wrapper script to run various reconnaissance tools via command-line flags."
     echo ""
     echo -e "${C_BOLD}USAGE:${C_ENDC}"
