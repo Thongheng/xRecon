@@ -80,6 +80,21 @@ install_apt_tool() {
 
 echo -e "${C_OKCYAN}Starting dependency setup for All-in-One Recon Tool...${C_ENDC}"
 
+# Make ReconX.sh executable
+chmod +x ReconX.sh
+
+# Create symlink to /usr/bin/reconx
+echo -e "${C_OKCYAN}Creating symlink to /usr/bin/reconx...${C_ENDC}"
+if [ -L /usr/bin/reconx ]; then
+    sudo rm /usr/bin/reconx
+fi
+sudo ln -sf "$(pwd)/ReconX.sh" /usr/bin/reconx
+if [ $? -eq 0 ]; then
+    echo -e "${C_OKGREEN}Symlink created successfully. You can now run 'reconx' from anywhere.${C_ENDC}"
+else
+    echo -e "${C_FAIL}Failed to create symlink. You may need to run the script with sudo privileges.${C_ENDC}"
+fi
+
 # Check and install Go-based tools
 check_go
 for tool in "${TOOLS[@]}"; do
