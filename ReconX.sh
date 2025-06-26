@@ -40,10 +40,27 @@ check_tool() {
     fi
 }
 
-# --- Helper function to validate domain format ---
-validate_domain() {
-    if ! echo "$1" | grep -Pq '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-        echo -e "${C_FAIL}Error: Invalid domain format: $1${C_ENDC}"
+# --- Helper function to validate domain or IP address format ---
+validate_target() {
+    # IPv4 regex pattern
+    ipv4_pattern='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+    # Domain regex pattern
+    domain_pattern='^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+    if [[ "$1" =~ $ipv4_pattern ]]; then
+        # Validate each octet is between 0-255
+        IFS='.' read -ra ADDR <<< "$1"
+        for i in "${ADDR[@]}"; do
+            if [ "$i" -gt 255 ] || [ "$i" -lt 0 ]; then
+                echo -e "${C_FAIL}Error: Invalid IP address format: $1${C_ENDC}"
+                exit 1
+            fi
+        done
+        return 0
+    elif echo "$1" | grep -Pq "$domain_pattern"; then
+        return 0
+    else
+        echo -e "${C_FAIL}Error: Invalid target format. Please provide a valid domain or IP address: $1${C_ENDC}"
         exit 1
     fi
 }
@@ -55,27 +72,25 @@ usage() {
     echo ""
     echo -e "${C_BOLD}USAGE:${C_ENDC}"
     echo "  $0 <target> [scan_flag]"
-    echo ""
-    echo -e "${C_BOLD}EXAMPLE:${C_ENDC}"
-    echo "  $0 example.com --tech"
-    echo "  $0 example.com --all"
+    echo "  where <target> can be a domain (example.com) or an IP address (10.10.10.10)"
     echo ""
     echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
     echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
-    echo "  --nmap               Network Port Scanning"
-    echo "  --subfinder          Passive Subdomain Enumeration"
-    echo "  --gobuster-sub       Active Subdomain Enumeration (gobuster)"
-    echo "  --dns                DNS Enumeration (dnsrecon)"
+    echo "  --nmap               Port Scanning"
+    echo "  --subfinder          Passive Subdomain"
+    echo "  --gobuster-sub       Active Subdomain (gobuster)"
+    echo "  --dns                DNS Enum (dnsrecon)"
     echo "  --vhost              VHost Scanning (ffuf)"
     echo "  --httpx              Web Server Validation"
-    echo "  --subzy              Subdomain Takeover Check"
+    echo "  --subzy              Subdomain Takeover"
     echo "  --katana             Web Crawling"
-    echo "  --dir                Directory Brute-Forcing (ffuf)"
+    echo "  --dir                Directory Bruteforcing (ffuf)"
     echo "  --nuclei             Vulnerability Scanning"
     echo "  --zap                Deep Web App Scanning (OWASP ZAP)"
-    echo "  --waf                Web Application Firewall Detection (wafw00f)"
-    echo "  --screenshots        Take screenshots of live web pages (gowitness)"
+    echo "  --waf                WAF Detection (wafw00f)"
+    echo "  --screenshots        Screenshots of live web pages (gowitness)"
     echo "  --tech               Technology Fingerprinting (whatweb)"
+    echo "  --https              Use HTTPS instead of HTTP for URLs (default is HTTP)"
     echo "  -h, --help           Show this help message"
     exit 1
 }
@@ -83,6 +98,7 @@ usage() {
 # --- Argument Parsing ---
 TARGET=""
 SCAN_MODE=""
+USE_HTTPS=false  # Default to HTTP unless --https is specified
 
 if [ "$#" -eq 0 ]; then
     echo -e "${C_FAIL}Error: No target or scan flag specified.${C_ENDC}"
@@ -106,6 +122,7 @@ while [[ "$#" -gt 0 ]]; do
         --waf) SCAN_MODE="waf" ;;
         --screenshots) SCAN_MODE="screenshots" ;;
         --tech) SCAN_MODE="tech" ;;
+        --https) USE_HTTPS=true ;;
         -h|--help) usage ;;
         *)
             if [ -z "$TARGET" ]; then
@@ -130,8 +147,17 @@ if [ -z "$SCAN_MODE" ]; then
     usage
 fi
 
-# Validate domain format
-validate_domain "$TARGET"
+# Validate target format (domain or IP)
+validate_target "$TARGET"
+
+# --- Helper function to get URL prefix ---
+get_url_prefix() {
+    if [ "$USE_HTTPS" = true ]; then
+        echo "https://"
+    else
+        echo "http://"
+    fi
+}
 
 # --- Command Execution Functions ---
 execute_interactive() {
@@ -211,7 +237,7 @@ case "$SCAN_MODE" in
     "httpx")
         check_tool "$TOOL_HTTPX"
         echo -e "${C_WARNING}Note: Httpx is best used with a list of hosts from another tool's output.${C_ENDC}"
-        base_command="$TOOL_HTTPX -u https://$TARGET -o httpx_output.txt"
+        base_command="$TOOL_HTTPX -u $(get_url_prefix)$TARGET -o httpx_output.txt"
         execute_interactive "$base_command"
         ;;
     "waf")
@@ -232,7 +258,7 @@ case "$SCAN_MODE" in
     "vhost")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
-        base_command="$TOOL_FFUF -u https://$TARGET -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST -o ffuf_vhost_output.txt"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST -o ffuf_vhost_output.txt"
         execute_interactive "$base_command"
         ;;
     "subzy")
@@ -243,13 +269,13 @@ case "$SCAN_MODE" in
         ;;
     "katana")
         check_tool "$TOOL_KATANA"
-        base_command="$TOOL_KATANA -u https://$TARGET -d 5 -o katana_output.txt"
+        base_command="$TOOL_KATANA -u $(get_url_prefix)$TARGET -d 5 -o katana_output.txt"
         execute_interactive "$base_command"
         ;;
     "dir")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_DIR" ] && { echo -e "${C_FAIL}Error: Directory wordlist not found at '$WORDLIST_DIR'${C_ENDC}"; exit 1; }
-        base_command="$TOOL_FFUF -u https://$TARGET/FUZZ -w $WORDLIST_DIR -o ffuf_dir_output.txt"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET/FUZZ -w $WORDLIST_DIR -o ffuf_dir_output.txt"
         execute_interactive "$base_command"
         ;;
     "nuclei")
@@ -260,7 +286,7 @@ case "$SCAN_MODE" in
     "zap")
         check_tool "$TOOL_ZAPROXY"
         echo -e "${C_WARNING}Note: ZAP output must be configured manually (e.g., add '-quickreport report.html')${C_ENDC}"
-        base_command="$TOOL_ZAPROXY -cmd -quickurl https://$TARGET"
+        base_command="$TOOL_ZAPROXY -cmd -quickurl $(get_url_prefix)$TARGET"
         execute_interactive "$base_command"
         ;;
     "screenshots")
