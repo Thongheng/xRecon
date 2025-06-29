@@ -91,6 +91,7 @@ usage() {
     echo "  --tech               Technology Fingerprinting (whatweb)"
     echo "  --https              Use HTTPS instead of HTTP for URLs (default is HTTP)"
     echo "  --output             Enable output files for commands that support it"
+    echo "  -p, --port PORT      Specify port number for tools that support it"
     echo "  -h, --help           Show this help message"
     exit 1
 }
@@ -100,6 +101,7 @@ TARGET=""
 SCAN_MODE=""
 USE_HTTPS=false  # Default to HTTP unless --https is specified
 OUTPUT_ENABLED=false  # Default to no output files unless --output is specified
+PORT=""  # Default to no port specification
 
 if [ "$#" -eq 0 ]; then
     echo -e "${C_FAIL}Error: No target or scan flag specified.${C_ENDC}"
@@ -125,6 +127,15 @@ while [[ "$#" -gt 0 ]]; do
         --tech) SCAN_MODE="tech" ;;
         --https) USE_HTTPS=true ;;
         --output) OUTPUT_ENABLED=true ;;
+        -p|--port)
+            shift
+            if [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ] && [ "$1" -lt 65536 ]; then
+                PORT="$1"
+            else
+                echo -e "${C_FAIL}Error: Invalid port number: $1. Port must be between 1-65535.${C_ENDC}"
+                exit 1
+            fi
+            ;;
         -h|--help) usage ;;
         *)
             if [ -z "$TARGET" ]; then
@@ -186,6 +197,27 @@ get_url_prefix() {
     fi
 }
 
+# --- Helper function to get port parameter ---
+get_port_param() {
+    local tool="$1"
+    
+    if [ -n "$PORT" ]; then
+        case "$tool" in
+            "nmap")
+                echo "-p $PORT"
+                ;;
+            "httpx"|"katana"|"ffuf"|"gowitness"|"whatweb"|"zaproxy"|"nuclei"|"wafw00f")
+                echo ":$PORT"
+                ;;
+            *)
+                echo ""
+                ;;
+        esac
+    else
+        echo ""
+    fi
+}
+
 # --- Command Execution Functions ---
 execute_interactive() {
     echo -e "${C_HEADER}Edit command below and press Enter to run.${C_ENDC}"
@@ -228,7 +260,9 @@ run_all_workflow() {
     # 3. Httpx
     echo -e "\n${C_OKCYAN}[WORKFLOW] Running Httpx to find live web servers...${C_ENDC}"
     check_tool "$TOOL_HTTPX"
-    execute_interactive "$TOOL_HTTPX -l all_subdomains.txt $(get_output_param httpx httpx_live_servers.txt)"
+    PORT_PARAM=""
+    [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
+    execute_interactive "$TOOL_HTTPX -l all_subdomains.txt $PORT_PARAM $(get_output_param httpx httpx_live_servers.txt)"
     echo -e "${C_OKGREEN}Httpx finished. Live web servers saved to httpx_live_servers.txt${C_ENDC}"
 
     # 4. Screenshots
@@ -278,28 +312,38 @@ case "$SCAN_MODE" in
     "httpx")
         check_tool "$TOOL_HTTPX"
         echo -e "${C_WARNING}Note: Httpx is best used with a list of hosts from another tool's output.${C_ENDC}"
-        base_command="$TOOL_HTTPX -u $(get_url_prefix)$TARGET $(get_output_param httpx httpx_output.txt)"
+        PORT_PARAM=""
+        [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
+        base_command="$TOOL_HTTPX -u $(get_url_prefix)$TARGET $PORT_PARAM $(get_output_param httpx httpx_output.txt)"
         execute_interactive "$base_command"
         ;;
     "waf")
         check_tool "$TOOL_WAFW00F"
-        base_command="$TOOL_WAFW00F -a $TARGET"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_WAFW00F -a $TARGET_WITH_PORT"
         execute_interactive "$base_command"
         ;;
     "tech")
         check_tool "$TOOL_WHATWEB"
-        base_command="$TOOL_WHATWEB $TARGET"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_WHATWEB $TARGET_WITH_PORT"
         execute_interactive "$base_command"
         ;;
     "nmap")
         check_tool "$TOOL_NMAP"
-        base_command="$TOOL_NMAP -sV -sC -Pn -v $TARGET $(get_output_param nmap nmap_output.txt)"
+        PORT_PARAM=""
+        [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
+        base_command="$TOOL_NMAP -sV -sC -Pn -v $PORT_PARAM $TARGET $(get_output_param nmap nmap_output.txt)"
         execute_interactive "$base_command"
         ;;
     "vhost")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
-        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST $(get_output_param ffuf ffuf_vhost_output.txt)"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET_WITH_PORT -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST $(get_output_param ffuf ffuf_vhost_output.txt)"
         execute_interactive "$base_command"
         ;;
     "subzy")
@@ -315,24 +359,32 @@ case "$SCAN_MODE" in
         ;;
     "katana")
         check_tool "$TOOL_KATANA"
-        base_command="$TOOL_KATANA -u $(get_url_prefix)$TARGET -d 5 $(get_output_param katana katana_output.txt)"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_KATANA -u $(get_url_prefix)$TARGET_WITH_PORT -d 5 $(get_output_param katana katana_output.txt)"
         execute_interactive "$base_command"
         ;;
     "dir")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_DIR" ] && { echo -e "${C_FAIL}Error: Directory wordlist not found at '$WORDLIST_DIR'${C_ENDC}"; exit 1; }
-        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET/FUZZ -w $WORDLIST_DIR $(get_output_param ffuf ffuf_dir_output.txt)"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET_WITH_PORT/FUZZ -w $WORDLIST_DIR $(get_output_param ffuf ffuf_dir_output.txt)"
         execute_interactive "$base_command"
         ;;
     "nuclei")
         check_tool "$TOOL_NUCLEI"
-        base_command="$TOOL_NUCLEI -u $TARGET $(get_output_param nuclei nuclei_output.txt)"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_NUCLEI -u $TARGET_WITH_PORT $(get_output_param nuclei nuclei_output.txt)"
         execute_interactive "$base_command"
         ;;
     "zap")
         check_tool "$TOOL_ZAPROXY"
         echo -e "${C_WARNING}Note: ZAP output must be configured manually (e.g., add '-quickreport report.html')${C_ENDC}"
-        base_command="$TOOL_ZAPROXY -cmd -quickurl $(get_url_prefix)$TARGET"
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        base_command="$TOOL_ZAPROXY -cmd -quickurl $(get_url_prefix)$TARGET_WITH_PORT"
         execute_interactive "$base_command"
         ;;
     "screenshots")
@@ -342,7 +394,9 @@ case "$SCAN_MODE" in
             base_command="$TOOL_GOWITNESS file -f httpx_live_servers.txt -P screenshots"
         else
             echo -e "${C_WARNING}Note: Without --output flag, you'll need to specify a URL or file manually.${C_ENDC}"
-            base_command="$TOOL_GOWITNESS single $(get_url_prefix)$TARGET -P screenshots"
+            TARGET_WITH_PORT="$TARGET"
+            [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+            base_command="$TOOL_GOWITNESS single $(get_url_prefix)$TARGET_WITH_PORT -P screenshots"
         fi
         execute_interactive "$base_command"
         ;;
