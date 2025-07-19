@@ -16,6 +16,7 @@ TOOL_GOBUSTER="gobuster"
 TOOL_FFUF="ffuf"
 TOOL_SUBFINDER="subfinder"
 TOOL_NMAP="nmap"
+TOOL_RUSTSCAN="rustscan"
 TOOL_HTTPX="httpx"
 TOOL_ZAPROXY="zaproxy"
 TOOL_SUBZY="subzy"
@@ -76,6 +77,7 @@ usage() {
     echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
     echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
     echo "  --nmap               Port Scanning"
+    echo "  --rust               Fast Port Scanning with Rustscan"
     echo "  --subfinder          Passive Subdomain"
     echo "  --gobuster-sub       Active Subdomain (gobuster)"
     echo "  --dns                DNS Enum (dnsrecon)"
@@ -112,6 +114,7 @@ while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --all) SCAN_MODE="all" ;;
         --nmap) SCAN_MODE="nmap" ;;
+        --rust) SCAN_MODE="rust" ;;
         --subfinder) SCAN_MODE="subfinder" ;;
         --gobuster-sub) SCAN_MODE="gobuster-sub" ;;
         --dns) SCAN_MODE="dns" ;;
@@ -336,6 +339,13 @@ case "$SCAN_MODE" in
         PORT_PARAM=""
         [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
         base_command="$TOOL_NMAP -sV -sC -Pn -v $PORT_PARAM $TARGET $(get_output_param nmap nmap_output.txt)"
+        execute_interactive "$base_command"
+        ;;
+    "rust")
+        check_tool "$TOOL_RUSTSCAN"
+        PORT_PARAM=""
+        [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
+        base_command="$TOOL_RUSTSCAN -a $TARGET $PORT_PARAM"
         execute_interactive "$base_command"
         ;;
     "vhost")
