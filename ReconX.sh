@@ -345,7 +345,7 @@ case "$SCAN_MODE" in
         check_tool "$TOOL_RUSTSCAN"
         PORT_PARAM=""
         [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
-        base_command="$TOOL_RUSTSCAN -a $TARGET $PORT_PARAM"
+        base_command="$TOOL_RUSTSCAN -a $TARGET $PORT_PARAM --ulimit 5000"
         execute_interactive "$base_command"
         ;;
     "vhost")
