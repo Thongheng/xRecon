@@ -2,33 +2,6 @@
 
 xRecon is a Bash-based reconnaissance automation tool designed for penetration testers and security researchers. It streamlines the process of gathering information about target domains and IP addresses, integrating multiple open-source utilities for efficient and comprehensive recon workflows.
 
-## Features
-- **Automated Workflow (`--all`):** Runs a full, automated reconnaissance process including subdomain enumeration, live host detection, and screenshots.
-- **Subdomain Enumeration:**
-  - Passive Subdomain discovery (`--subfinder`)
-  - Active Subdomain bruteforcing with Gobuster (`--gobuster-sub`)
-  - DNS enumeration with Dnsrecon (`--dns`)
-- **Host and Web Server Analysis:**
-  - Web Server Validation with Httpx (`--httpx`)
-  - VHost Scanning with Ffuf (`--vhost`)
-  - Subdomain Takeover detection with Subzy (`--subzy`)
-  - Web Application Firewall (WAF) detection with Wafw00f (`--waf`)
-  - Technology Fingerprinting with Whatweb (`--tech`)
-- **Port Scanning:**
-  - Comprehensive Port Scanning with Nmap (`--nmap`)
-  - Fast Port Scanning with Rustscan (`--rust`)
-- **Vulnerability Scanning & Crawling:**
-  - Web Crawling with Katana (`--katana`)
-  - Directory Bruteforcing with Ffuf (`--dir`)
-  - Vulnerability Scanning with Nuclei (`--nuclei`)
-  - Deep Web Application Scanning with OWASP ZAP (`--zap`)
-- **Visual Reconnaissance:**
-  - Screenshots of live web pages with Gowitness (`--screenshots`)
-- **Flexible Options:**
-  - Support for HTTPS (`--https`)
-  - Output to files (`--output`)
-  - Custom port specification (`-p` or `--port`)
-
 ## Requirements
 - Bash (Linux/macOS)
 - The following tools must be installed and available in your PATH:
