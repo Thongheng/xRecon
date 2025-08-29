@@ -223,6 +223,23 @@ get_port_param() {
 
 # --- Command Execution Functions ---
 execute_interactive() {
+    # Auto-copy ONLY the command
+    if command -v xclip >/dev/null 2>&1; then
+        echo -n "$1" | xclip -selection clipboard
+        echo "[+] Initial command copied to clipboard (xclip)"
+    elif command -v xsel >/dev/null 2>&1; then
+        echo -n "$1" | xsel --clipboard --input
+        echo "[+] Initial command copied to clipboard (xsel)"
+    elif command -v pbcopy >/dev/null 2>&1; then
+        echo -n "$1" | pbcopy
+        echo "[+] Initial command copied to clipboard (pbcopy)"
+    elif command -v clip.exe >/dev/null 2>&1; then
+        echo -n "$1" | clip.exe
+        echo "[+] Initial command copied to clipboard (Windows/WSL)"
+    else
+        echo "[!] Clipboard tool not found — initial command NOT copied."
+    fi
+
     echo -e "${C_HEADER}Edit command below and press Enter to run.${C_ENDC}"
     read -e -p "$(echo -e ${C_OKCYAN}'> '${C_ENDC})" -i "$1" final_command
     eval "$final_command"
