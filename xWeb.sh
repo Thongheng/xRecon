@@ -15,8 +15,6 @@ C_BOLD='\033[1m'
 TOOL_GOBUSTER="gobuster"
 TOOL_FFUF="ffuf"
 TOOL_SUBFINDER="subfinder"
-TOOL_NMAP="nmap"
-TOOL_RUSTSCAN="rustscan"
 TOOL_HTTPX="httpx"
 TOOL_ZAPROXY="zaproxy"
 TOOL_SUBZY="subzy"
@@ -76,8 +74,6 @@ usage() {
     echo ""
     echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
     echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
-    echo "  --nmap               Port Scanning"
-    echo "  --rust               Fast Port Scanning with Rustscan"
     echo "  --subfinder          Passive Subdomain"
     echo "  --gobuster-sub       Active Subdomain (gobuster)"
     echo "  --dns                DNS Enum (dnsrecon)"
@@ -95,6 +91,7 @@ usage() {
     echo "  --output             Enable output files for commands that support it"
     echo "  -p, --port PORT      Specify port number for tools that support it"
     echo "  -h, --help           Show this help message"
+    echo "  -c                   Copy the command to clipboard instead of executing"
     exit 1
 }
 
@@ -104,6 +101,7 @@ SCAN_MODE=""
 USE_HTTPS=false  # Default to HTTP unless --https is specified
 OUTPUT_ENABLED=false  # Default to no output files unless --output is specified
 PORT=""  # Default to no port specification
+COPY_COMMAND=false  # Default to not copying commands
 
 if [ "$#" -eq 0 ]; then
     echo -e "${C_FAIL}Error: No target or scan flag specified.${C_ENDC}"
@@ -139,6 +137,7 @@ while [[ "$#" -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        -c) COPY_COMMAND=true ;;
         -h|--help) usage ;;
         *)
             if [ -z "$TARGET" ]; then
@@ -176,9 +175,6 @@ get_output_param() {
             "subfinder"|"gobuster"|"dnsrecon"|"httpx"|"subzy"|"katana"|"nuclei")
                 echo "-o $default_output"
                 ;;
-            "nmap")
-                echo "-oN $default_output"
-                ;;
             "ffuf")
                 echo "-o $default_output"
                 ;;
@@ -206,9 +202,6 @@ get_port_param() {
     
     if [ -n "$PORT" ]; then
         case "$tool" in
-            "nmap")
-                echo "-p $PORT"
-                ;;
             "httpx"|"katana"|"ffuf"|"gowitness"|"whatweb"|"zaproxy"|"nuclei"|"wafw00f")
                 echo ":$PORT"
                 ;;
@@ -223,29 +216,30 @@ get_port_param() {
 
 # --- Command Execution Functions ---
 execute_interactive() {
-    # Auto-copy ONLY the command
-    if command -v xclip >/dev/null 2>&1; then
-        echo -n "$1" | xclip -selection clipboard
-        echo "[+] Initial command copied to clipboard (xclip)"
-    elif command -v xsel >/dev/null 2>&1; then
-        echo -n "$1" | xsel --clipboard --input
-        echo "[+] Initial command copied to clipboard (xsel)"
-    elif command -v pbcopy >/dev/null 2>&1; then
-        echo -n "$1" | pbcopy
-        echo "[+] Initial command copied to clipboard (pbcopy)"
-    elif command -v clip.exe >/dev/null 2>&1; then
-        echo -n "$1" | clip.exe
-        echo "[+] Initial command copied to clipboard (Windows/WSL)"
+    local cmd="$1"
+    echo -e "${C_OKCYAN}Running: $cmd${C_ENDC}"
+    if [ "$COPY_COMMAND" = true ]; then
+        if command -v xclip >/dev/null 2>&1; then
+            echo -n "$cmd" | xclip -selection clipboard
+            echo "[+] Command copied to clipboard (xclip)"
+        elif command -v xsel >/dev/null 2>&1; then
+            echo -n "$cmd" | xsel --clipboard --input
+            echo "[+] Command copied to clipboard (xsel)"
+        elif command -v pbcopy >/dev/null 2>&1; then
+            echo -n "$cmd" | pbcopy
+            echo "[+] Command copied to clipboard (pbcopy)"
+        elif command -v clip.exe >/dev/null 2>&1; then
+            echo -n "$cmd" | clip.exe
+            echo "[+] Command copied to clipboard (Windows/WSL)"
+        else
+            echo "[!] Clipboard tool not found — command NOT copied."
+        fi
     else
-        echo "[!] Clipboard tool not found — initial command NOT copied."
-    fi
-
-    echo -e "${C_HEADER}Edit command below and press Enter to run.${C_ENDC}"
-    read -e -p "$(echo -e ${C_OKCYAN}'> '${C_ENDC})" -i "$1" final_command
-    eval "$final_command"
-    if [ $? -ne 0 ]; then
-        echo -e "${C_FAIL}Error: Interactive command failed: $final_command${C_ENDC}"
-        exit 1
+        eval "$cmd"
+        if [ $? -ne 0 ]; then
+            echo -e "${C_FAIL}Error: Command failed: $cmd${C_ENDC}"
+            exit 1
+        fi
     fi
 }
 
@@ -349,20 +343,6 @@ case "$SCAN_MODE" in
         TARGET_WITH_PORT="$TARGET"
         [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
         base_command="$TOOL_WHATWEB $TARGET_WITH_PORT"
-        execute_interactive "$base_command"
-        ;;
-    "nmap")
-        check_tool "$TOOL_NMAP"
-        PORT_PARAM=""
-        [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
-        base_command="$TOOL_NMAP -sV -sC -Pn -v $PORT_PARAM $TARGET $(get_output_param nmap nmap_output.txt)"
-        execute_interactive "$base_command"
-        ;;
-    "rust")
-        check_tool "$TOOL_RUSTSCAN"
-        PORT_PARAM=""
-        [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
-        base_command="$TOOL_RUSTSCAN -a $TARGET $PORT_PARAM --ulimit 5000"
         execute_interactive "$base_command"
         ;;
     "vhost")
