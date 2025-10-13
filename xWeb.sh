@@ -75,9 +75,10 @@ usage() {
     echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
     echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
     echo "  --subfinder          Passive Subdomain"
-    echo "  --gobuster-sub       Active Subdomain (gobuster)"
+    echo "  --gobuster-dns       Active Subdomain (gobuster)"
     echo "  --dns                DNS Enum (dnsrecon)"
-    echo "  --vhost              VHost Scanning (ffuf)"
+    echo "  --ffuf-vhost         VHost Scanning (ffuf)"
+    echo "  --gobuster-vhost     VHost Scanning (gobuster)"
     echo "  --httpx              Web Server Validation"
     echo "  --subzy              Subdomain Takeover"
     echo "  --katana             Web Crawling"
@@ -114,9 +115,10 @@ while [[ "$#" -gt 0 ]]; do
         --nmap) SCAN_MODE="nmap" ;;
         --rust) SCAN_MODE="rust" ;;
         --subfinder) SCAN_MODE="subfinder" ;;
-        --gobuster-sub) SCAN_MODE="gobuster-sub" ;;
+    --gobuster-dns) SCAN_MODE="gobuster-dns" ;;
+    --gobuster-vhost) SCAN_MODE="gobuster-vhost" ;;
         --dns) SCAN_MODE="dns" ;;
-        --vhost) SCAN_MODE="vhost" ;;
+        --ffuf-vhost) SCAN_MODE="vhost" ;;
         --httpx) SCAN_MODE="httpx" ;;
         --subzy) SCAN_MODE="subzy" ;;
         --katana) SCAN_MODE="katana" ;;
@@ -312,7 +314,7 @@ case "$SCAN_MODE" in
         base_command="$TOOL_SUBFINDER -d $TARGET $(get_output_param subfinder subfinder_output.txt)"
         execute_interactive "$base_command"
         ;;
-    "gobuster-sub")
+    "gobuster-dns")
         check_tool "$TOOL_GOBUSTER"
         [ ! -f "$WORDLIST_SUBDOMAIN" ] && { echo -e "${C_FAIL}Error: Subdomain wordlist not found at '$WORDLIST_SUBDOMAIN'${C_ENDC}"; exit 1; }
         base_command="$TOOL_GOBUSTER dns -d $TARGET -w $WORDLIST_SUBDOMAIN $(get_output_param gobuster gobuster_subdomain_output.txt)"
@@ -351,6 +353,15 @@ case "$SCAN_MODE" in
         TARGET_WITH_PORT="$TARGET"
         [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
         base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET_WITH_PORT -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST $(get_output_param ffuf ffuf_vhost_output.txt)"
+        execute_interactive "$base_command"
+        ;;
+    "gobuster-vhost")
+        check_tool "$TOOL_GOBUSTER"
+        [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
+        TARGET_WITH_PORT="$TARGET"
+        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
+        # Gobuster vhost mode uses 'vhost' command and a wordlist; output parameter supported
+        base_command="$TOOL_GOBUSTER vhost -u $(get_url_prefix)$TARGET_WITH_PORT -w $WORDLIST_VHOST --append-domain $(get_output_param gobuster gobuster_vhost_output.txt)"
         execute_interactive "$base_command"
         ;;
     "subzy")
