@@ -41,27 +41,53 @@ check_tool() {
 
 # --- Helper function to validate domain or IP address format ---
 validate_target() {
+    local target_input="$1"
+    local host=""
+    local port=""
+
+    # Remove http(s):// prefix
+    target_input=$(echo "$target_input" | sed -E 's/^(http|https):\/\///i')
+
+    # Separate host and port if a port is present
+    if [[ "$target_input" =~ :([0-9]+)$ ]]; then
+        port="${BASH_REMATCH[1]}"
+        host=$(echo "$target_input" | sed -E 's/:[0-9]+$//')
+    else
+        host="$target_input"
+    fi
+
     # IPv4 regex pattern
     ipv4_pattern='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
     # Domain regex pattern
     domain_pattern='^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     
-    if [[ "$1" =~ $ipv4_pattern ]]; then
+    if [[ "$host" =~ $ipv4_pattern ]]; then
         # Validate each octet is between 0-255
-        IFS='.' read -ra ADDR <<< "$1"
+        IFS='.' read -ra ADDR <<< "$host"
         for i in "${ADDR[@]}"; do
             if [ "$i" -gt 255 ] || [ "$i" -lt 0 ]; then
-                echo -e "${C_FAIL}Error: Invalid IP address format: $1${C_ENDC}"
+                echo -e "${C_FAIL}Error: Invalid IP address format in host: $host${C_ENDC}"
                 exit 1
             fi
         done
-        return 0
-    elif echo "$1" | grep -Pq "$domain_pattern"; then
-        return 0
-    else
-        echo -e "${C_FAIL}Error: Invalid target format. Please provide a valid domain or IP address: $1${C_ENDC}"
+    elif ! echo "$host" | grep -Pq "$domain_pattern"; then
+        echo -e "${C_FAIL}Error: Invalid domain format in host: $host${C_ENDC}"
         exit 1
     fi
+
+    # Validate port if present
+    if [ -n "$port" ]; then
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo -e "${C_FAIL}Error: Invalid port number: $port. Port must be between 1-65535.${C_ENDC}"
+            exit 1
+        fi
+    fi
+    
+    # Update TARGET and PORT global variables
+    TARGET="$host"
+    [ -n "$port" ] && PORT="$port"
+
+    return 0
 }
 
 # --- Usage/Help Function ---
@@ -70,27 +96,29 @@ usage() {
     echo ""
     echo -e "${C_BOLD}USAGE:${C_ENDC}"
     echo "  $0 <target> [scan_flag]"
-    echo "  where <target> can be a domain (example.com) or an IP address (10.10.10.10)"
+    echo "  where <target> can be:"
+    echo "    - IP address (e.g., 10.10.10.10)"
+    echo "    - Domain name (e.g., example.com)"
+    echo "    - Domain with port (e.g., example.com:8080)"
+    echo "    - URL with HTTP/HTTPS (e.g., http://example.com, https://example.com:8443)"
     echo ""
     echo -e "${C_BOLD}SCAN FLAGS (use one):${C_ENDC}"
     echo "  --all                Run a full, automated workflow (subdomain enumeration > live host detection)."
-    echo "  --subfinder          Passive Subdomain"
-    echo "  --gobuster-dns       Active Subdomain (gobuster)"
-    echo "  --dns                DNS Enum (dnsrecon)"
-    echo "  --ffuf-vhost         VHost Scanning (ffuf)"
-    echo "  --gobuster-vhost     VHost Scanning (gobuster)"
-    echo "  --httpx              Web Server Validation"
-    echo "  --subzy              Subdomain Takeover"
-    echo "  --katana             Web Crawling"
-    echo "  --dir                Directory Bruteforcing (ffuf)"
-    echo "  --nuclei             Vulnerability Scanning"
-    echo "  --zap                Deep Web App Scanning (OWASP ZAP)"
-    echo "  --waf                WAF Detection (wafw00f)"
-    echo "  --screenshots        Screenshots of live web pages (gowitness)"
-    echo "  --tech               Technology Fingerprinting (whatweb)"
-    echo "  --https              Use HTTPS instead of HTTP for URLs (default is HTTP)"
-    echo "  --output             Enable output files for commands that support it"
-    echo "  -p, --port PORT      Specify port number for tools that support it"
+    echo "  -subfinder           Passive Subdomain"
+    echo "  -gobuster-dns        Active Subdomain (gobuster)"
+    echo "  -dns                 DNS Enum (dnsrecon)"
+    echo "  -ffuf-vhost          VHost Scanning (ffuf)"
+    echo "  -gobuster-vhost      VHost Scanning (gobuster)"
+    echo "  -httpx               Web Server Validation"
+    echo "  -subzy               Subdomain Takeover"
+    echo "  -katana              Web Crawling"
+    echo "  -dir                 Directory Bruteforcing (ffuf)"
+    echo "  -nuclei              Vulnerability Scanning"
+    echo "  -zap                 Deep Web App Scanning (OWASP ZAP)"
+    echo "  -waf                 WAF Detection (wafw00f)"
+    echo "  -screenshots         Screenshots of live web pages (gowitness)"
+    echo "  -tech                Technology Fingerprinting (whatweb)"
+    echo "  -output              Enable output files for commands that support it"
     echo "  -h, --help           Show this help message"
     echo "  -c                   Copy the command to clipboard instead of executing"
     exit 1
@@ -99,9 +127,7 @@ usage() {
 # --- Argument Parsing ---
 TARGET=""
 SCAN_MODE=""
-USE_HTTPS=false  # Default to HTTP unless --https is specified
 OUTPUT_ENABLED=false  # Default to no output files unless --output is specified
-PORT=""  # Default to no port specification
 COPY_COMMAND=false  # Default to not copying commands
 
 if [ "$#" -eq 0 ]; then
@@ -111,34 +137,24 @@ fi
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        --all) SCAN_MODE="all" ;;
-        --nmap) SCAN_MODE="nmap" ;;
-        --rust) SCAN_MODE="rust" ;;
-        --subfinder) SCAN_MODE="subfinder" ;;
-    --gobuster-dns) SCAN_MODE="gobuster-dns" ;;
-    --gobuster-vhost) SCAN_MODE="gobuster-vhost" ;;
-        --dns) SCAN_MODE="dns" ;;
-        --ffuf-vhost) SCAN_MODE="vhost" ;;
-        --httpx) SCAN_MODE="httpx" ;;
-        --subzy) SCAN_MODE="subzy" ;;
-        --katana) SCAN_MODE="katana" ;;
-        --dir) SCAN_MODE="dir" ;;
-        --nuclei) SCAN_MODE="nuclei" ;;
-        --zap) SCAN_MODE="zap" ;;
-        --waf) SCAN_MODE="waf" ;;
-        --screenshots) SCAN_MODE="screenshots" ;;
-        --tech) SCAN_MODE="tech" ;;
-        --https) USE_HTTPS=true ;;
-        --output) OUTPUT_ENABLED=true ;;
-        -p|--port)
-            shift
-            if [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ] && [ "$1" -lt 65536 ]; then
-                PORT="$1"
-            else
-                echo -e "${C_FAIL}Error: Invalid port number: $1. Port must be between 1-65535.${C_ENDC}"
-                exit 1
-            fi
-            ;;
+        -all|--all) SCAN_MODE="all" ;;
+        -nmap|--nmap) SCAN_MODE="nmap" ;;
+        -rust|--rust) SCAN_MODE="rust" ;;
+        -subfinder|--subfinder) SCAN_MODE="subfinder" ;;
+    -gobuster-dns|--gobuster-dns) SCAN_MODE="gobuster-dns" ;;
+    -gobuster-vhost|--gobuster-vhost) SCAN_MODE="gobuster-vhost" ;;
+        -dns|--dns) SCAN_MODE="dns" ;;
+        -ffuf-vhost|--ffuf-vhost) SCAN_MODE="vhost" ;;
+        -httpx|--httpx) SCAN_MODE="httpx" ;;
+        -subzy|--subzy) SCAN_MODE="subzy" ;;
+        -katana|--katana) SCAN_MODE="katana" ;;
+        -dir|--dir) SCAN_MODE="dir" ;;
+        -nuclei|--nuclei) SCAN_MODE="nuclei" ;;
+        -zap|--zap) SCAN_MODE="zap" ;;
+        -waf|--waf) SCAN_MODE="waf" ;;
+        -screenshots|--screenshots) SCAN_MODE="screenshots" ;;
+        -tech|--tech) SCAN_MODE="tech" ;;
+        -output|--output) OUTPUT_ENABLED=true ;;
         -c) COPY_COMMAND=true ;;
         -h|--help) usage ;;
         *)
@@ -191,28 +207,10 @@ get_output_param() {
 
 # --- Helper function to get URL prefix ---
 get_url_prefix() {
-    if [ "$USE_HTTPS" = true ]; then
+    if [[ "$TARGET" =~ ^https:// ]]; then
         echo "https://"
     else
         echo "http://"
-    fi
-}
-
-# --- Helper function to get port parameter ---
-get_port_param() {
-    local tool="$1"
-    
-    if [ -n "$PORT" ]; then
-        case "$tool" in
-            "httpx"|"katana"|"ffuf"|"gowitness"|"whatweb"|"zaproxy"|"nuclei"|"wafw00f")
-                echo ":$PORT"
-                ;;
-            *)
-                echo ""
-                ;;
-        esac
-    else
-        echo ""
     fi
 }
 
@@ -276,7 +274,7 @@ run_all_workflow() {
     # 3. Httpx
     echo -e "\n${C_OKCYAN}[WORKFLOW] Running Httpx to find live web servers...${C_ENDC}"
     check_tool "$TOOL_HTTPX"
-    PORT_PARAM=""
+    local PORT_PARAM=""
     [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
     execute_interactive "$TOOL_HTTPX -l all_subdomains.txt $PORT_PARAM $(get_output_param httpx httpx_live_servers.txt)"
     echo -e "${C_OKGREEN}Httpx finished. Live web servers saved to httpx_live_servers.txt${C_ENDC}"
@@ -294,9 +292,9 @@ run_all_workflow() {
     echo -e "${C_BOLD}Next steps suggestion:${C_ENDC}"
     echo "  - Review screenshots in screenshots directory."
     if [ "$OUTPUT_ENABLED" = true ]; then
-        echo "  - Run --nuclei against 'httpx_live_servers.txt' for vulnerability scanning."
+        echo "  - Run -nuclei against 'httpx_live_servers.txt' for vulnerability scanning."
     else
-        echo "  - Run --nuclei with --output against 'httpx_live_servers.txt' for vulnerability scanning with output files."
+        echo "  - Run -nuclei with -output against 'httpx_live_servers.txt' for vulnerability scanning with output files."
     fi
 }
 
@@ -328,93 +326,75 @@ case "$SCAN_MODE" in
     "httpx")
         check_tool "$TOOL_HTTPX"
         echo -e "${C_WARNING}Note: Httpx is best used with a list of hosts from another tool's output.${C_ENDC}"
-        PORT_PARAM=""
+        local PORT_PARAM=""
         [ -n "$PORT" ] && PORT_PARAM="-p $PORT"
         base_command="$TOOL_HTTPX -u $(get_url_prefix)$TARGET $PORT_PARAM $(get_output_param httpx httpx_output.txt)"
         execute_interactive "$base_command"
         ;;
     "waf")
         check_tool "$TOOL_WAFW00F"
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_WAFW00F -a $TARGET_WITH_PORT"
+        base_command="$TOOL_WAFW00F -a $(get_url_prefix)$TARGET${PORT:+:$PORT}"
         execute_interactive "$base_command"
         ;;
     "tech")
         check_tool "$TOOL_WHATWEB"
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_WHATWEB $TARGET_WITH_PORT"
+        base_command="$TOOL_WHATWEB $(get_url_prefix)$TARGET${PORT:+:$PORT}"
         execute_interactive "$base_command"
         ;;
     "vhost")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET_WITH_PORT -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST $(get_output_param ffuf ffuf_vhost_output.txt)"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET${PORT:+:$PORT} -H 'Host:FUZZ.$TARGET' -w $WORDLIST_VHOST -ic $(get_output_param ffuf ffuf_vhost_output.txt)"
         execute_interactive "$base_command"
         ;;
     "gobuster-vhost")
         check_tool "$TOOL_GOBUSTER"
         [ ! -f "$WORDLIST_VHOST" ] && { echo -e "${C_FAIL}Error: VHost wordlist not found at '$WORDLIST_VHOST'${C_ENDC}"; exit 1; }
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
         # Gobuster vhost mode uses 'vhost' command and a wordlist; output parameter supported
-        base_command="$TOOL_GOBUSTER vhost -u $(get_url_prefix)$TARGET_WITH_PORT -w $WORDLIST_VHOST --append-domain $(get_output_param gobuster gobuster_vhost_output.txt)"
+        base_command="$TOOL_GOBUSTER vhost -u $(get_url_prefix)$TARGET${PORT:+:$PORT} -w $WORDLIST_VHOST --append-domain $(get_output_param gobuster gobuster_vhost_output.txt)"
         execute_interactive "$base_command"
         ;;
     "subzy")
         check_tool "$TOOL_SUBZY"
         if [ "$OUTPUT_ENABLED" = true ]; then
-            [ ! -f "subfinder_output.txt" ] && { echo -e "${C_FAIL}Error: Run --subfinder with --output first to generate subfinder_output.txt${C_ENDC}"; exit 1; }
+            [ ! -f "subfinder_output.txt" ] && { echo -e "${C_FAIL}Error: Run -subfinder with -output first to generate subfinder_output.txt${C_ENDC}"; exit 1; }
             base_command="$TOOL_SUBZY run --targets subfinder_output.txt $(get_output_param subzy subzy_output.txt)"
         else
-            echo -e "${C_WARNING}Note: Without --output flag, you'll need to run subfinder with --output first and redirect output to a file.${C_ENDC}"
+            echo -e "${C_WARNING}Note: Without -output flag, you'll need to run subfinder with -output first and redirect output to a file.${C_ENDC}"
             base_command="$TOOL_SUBZY run"
         fi
         execute_interactive "$base_command"
         ;;
     "katana")
         check_tool "$TOOL_KATANA"
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_KATANA -u $(get_url_prefix)$TARGET_WITH_PORT -d 5 $(get_output_param katana katana_output.txt)"
+        base_command="$TOOL_KATANA -u $(get_url_prefix)$TARGET${PORT:+:$PORT} -d 5 $(get_output_param katana katana_output.txt)"
         execute_interactive "$base_command"
         ;;
     "dir")
         check_tool "$TOOL_FFUF"
         [ ! -f "$WORDLIST_DIR" ] && { echo -e "${C_FAIL}Error: Directory wordlist not found at '$WORDLIST_DIR'${C_ENDC}"; exit 1; }
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET_WITH_PORT/FUZZ -w $WORDLIST_DIR $(get_output_param ffuf ffuf_dir_output.txt)"
+        base_command="$TOOL_FFUF -u $(get_url_prefix)$TARGET${PORT:+:$PORT}/FUZZ -w $WORDLIST_DIR -ic $(get_output_param ffuf ffuf_dir_output.txt)"
         execute_interactive "$base_command"
         ;;
     "nuclei")
         check_tool "$TOOL_NUCLEI"
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_NUCLEI -u $TARGET_WITH_PORT $(get_output_param nuclei nuclei_output.txt)"
+        base_command="$TOOL_NUCLEI -u $(get_url_prefix)$TARGET${PORT:+:$PORT} $(get_output_param nuclei nuclei_output.txt)"
         execute_interactive "$base_command"
         ;;
     "zap")
         check_tool "$TOOL_ZAPROXY"
         echo -e "${C_WARNING}Note: ZAP output must be configured manually (e.g., add '-quickreport report.html')${C_ENDC}"
-        TARGET_WITH_PORT="$TARGET"
-        [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-        base_command="$TOOL_ZAPROXY -cmd -quickurl $(get_url_prefix)$TARGET_WITH_PORT"
+        base_command="$TOOL_ZAPROXY -cmd -quickurl $(get_url_prefix)$TARGET${PORT:+:$PORT}"
         execute_interactive "$base_command"
         ;;
     "screenshots")
         check_tool "$TOOL_GOWITNESS"
         if [ "$OUTPUT_ENABLED" = true ]; then
-            echo -e "${C_WARNING}This tool requires a file with a list of URLs (e.g., from --all or --httpx with --output).${C_ENDC}"
+            echo -e "${C_WARNING}This tool requires a file with a list of URLs (e.g., from -all or -httpx with -output).${C_ENDC}"
             base_command="$TOOL_GOWITNESS file -f httpx_live_servers.txt -P screenshots"
         else
-            echo -e "${C_WARNING}Note: Without --output flag, you'll need to specify a URL or file manually.${C_ENDC}"
-            TARGET_WITH_PORT="$TARGET"
-            [ -n "$PORT" ] && TARGET_WITH_PORT="$TARGET:$PORT"
-            base_command="$TOOL_GOWITNESS single $(get_url_prefix)$TARGET_WITH_PORT -P screenshots"
+            echo -e "${C_WARNING}Note: Without -output flag, you'll need to specify a URL or file manually.${C_ENDC}"
+            base_command="$TOOL_GOWITNESS single $(get_url_prefix)$TARGET${PORT:+:$PORT} -P screenshots"
         fi
         execute_interactive "$base_command"
         ;;
